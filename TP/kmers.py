@@ -1,8 +1,7 @@
-
 def kmer2str(val, k):
-    """ Transform a kmer integer into a its string representation
+    """ Transform a kmer integer into its string representation
     :param int val: An integer representation of a kmer
-    :param int k: The number of nucleotides involved into the kmer.
+    :param int k: The number of nucleotides involved in the kmer.
     :return str: The kmer string formatted
     """
     letters = ['A', 'C', 'T', 'G']
@@ -14,64 +13,69 @@ def kmer2str(val, k):
     str_val.reverse()
     return "".join(str_val)
 
-def encode_nucl(letter):
-    """ Transforms a nucleotide into its numerical equivalent. 
-    :param str letter: The nucleotide read.
-    :return int: Numerical representation of the nucleotide.
+def encode_nucl(nucl):
+    """ Encode a nucleotide into a 2-bit integer
+    :param str nucl: The nucleotide to encode
+    :return (int, int): The encoded nucleotide and its reverse complement
     """
-    encoding = {'A': 0, 'C' : 1, 'T' : 2, 'G' : 3}
-    return encoding[letter]
+    encoded = (ord(nucl) >> 1) & 0b11  # Extract the two bits of the ASCII code that represent the nucleotide
+    rencoded = (encoded + 2) & 0b11  # Complement encoding with bit tricks. Avoid slow if statement.
+    return encoded, rencoded
 
-def encode_kmer(seq, k):
-    """ Transforms a k-mer into an integer with binary values of nucleotides.
-    :param str seq: The sequence of nucleotides.
-    :param int k: The length of the k-mer.
-    :return int: Encoded k-mer.
-    """
+def xorshift(val):
+    """Apply xorshift to the kmer value to compute its reverse complement"""
+    val ^= (val << 13) & 0xFFFFFFFFFFFFFFFF
+    val ^= (val >> 7) & 0xFFFFFFFFFFFFFFFF
+    val ^= (val << 17) & 0xFFFFFFFFFFFFFFFF
+    return val
+
+def stream_kmers(seq, k):
+    """Generate kmers and their reverse complements from a sequence"""
     kmer = 0
-    for letter in seq[:k]:
+    rkmer = 0
+
+    # Add the first k-1 nucleotides to the kmer and its reverse complement
+    for i in range(k-1):
+        nucl, rnucl = encode_nucl(seq[i])
+        kmer |= nucl << (2 * (k-2-i))
+        rkmer |= rnucl << (2 * i)
+
+    mask = (1 << (2 * (k-1))) - 1
+
+    # Yield the kmers
+    for i in range(k-1, len(seq)):
+        nucl, rnucl = encode_nucl(seq[i])
+        # Remove the leftmost nucleotide from the kmer
+        kmer &= mask
+        # Shift the kmer to make space for the new nucleotide
         kmer <<= 2
-        kmer += encode_nucl(letter)
-    return kmer 
+        # Add the new nucleotide to the kmer
+        kmer |= nucl
+        # Make space for the new nucleotide in the reverse kmer (remove the rightmost nucleotide by side effect)
+        rkmer >>= 2
+        # Add the new nucleotide to the reverse kmer
+        rkmer |= rnucl << (2 * (k-1))
 
-def enumerate_kmers(seq, k):
-    """ Generates all k-mers of length k from the given sequence.
-    :param str seq: The input sequence.
-    :param int k: The length of each k-mer.
-    :yield: Each k-mer in the sequence.
+        yield min(xorshift(kmer), xorshift(rkmer))
+
+def filter_smallests(seq, k, sketch_size):
+    """Filter and return the smallest kmers and rkmer.
+    :param seq: Input sequence
+    :param k: Size of kmer
+    :param sketch_size: Number of smallest elements to retain
+    :return: Sorted list of smallest kmers
     """
-    mask = (1 << (2 * k)) - 1
-    kmer = encode_kmer(seq[:k], k)
-    yield kmer
+    sketch = [float('inf')] * sketch_size  # Initialize the sketch with infinity
+    max_element = float('inf')  # Start with max_element as infinity
 
-    for i in range(1, len(seq) - k + 1):
-        kmer = ((kmer << 2) & mask) + encode_nucl(seq[i + k - 1])
-        yield kmer
-
-def jaccard(sequencesA, sequencesB, k):
-    """ Calculate the Jaccard index between two lists of sequences.
-    :param list sequencesA: List of sequences for organism A.
-    :param list sequencesB: List of sequences for organism B.
-    :param int k: Length of k-mers.
-    :return float: Jaccard similarity index.
-    """
-    kmersA = set()
-    kmersB = set()
-
-    for seq in sequencesA:
-        kmersA.update(enumerate_kmers(seq, k))
+    # Iterate over each kmer generated from the sequence
+    for value in stream_kmers(seq, k):
+        if value < max_element:
+            # Find the index of the current max element in the sketch
+            idx = sketch.index(max_element)
+            # Replace the max element with the new smaller value
+            sketch[idx] = value
+            # Update max_element to the current maximum in the sketch
+            max_element = max(sketch)
     
-    for seq in sequencesB:
-        kmersB.update(enumerate_kmers(seq, k))
-
-    # Calculate intersection and union
-    intersect = kmersA & kmersB
-    union = kmersA | kmersB
-    
-    # Results
-    print(f"Taille k-mers en commun pour les deux organismes : {len(intersect)}")
-    print(f"Taille k-mers uniques pour les deux organismes : {len(union)}")
-    
-    # Calculate Jaccard index
-    j = len(intersect) / len(union) if union else 0
-    return j
+    return sorted(sketch)

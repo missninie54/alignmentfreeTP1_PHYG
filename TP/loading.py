@@ -27,7 +27,7 @@ def load_fasta(file_pointer):
 def load_directory(directory):
     """ Loads all the fasta files from a data directory into a dictionary.
     Each subdirectory in data is considered as a different sample.
-    Fatsta files (even gzipped) are loaded.
+    Fasta files (even gzipped) are loaded.
     :param str directory: Path to the data directory to load.
     :return dict: A dict containing pairs (sample, [sequence list]).
     """
@@ -41,11 +41,11 @@ def load_directory(directory):
             files[name] = []
             for filename in listdir(subpath):
                 # Load raw fasta files
-                if filename.endswith(".fa") or filename.endswith(".fasta"):
+                if filename.endswith(".fa") or filename.endswith(".fasta") or filename.endswith(".fna"):
                     with open(path.join(subpath, filename)) as fp:
                         files[name] += load_fasta(fp)
                 # Load gzipped fasta files
-                elif filename.endswith(".fa.gz") or filename.endswith(".fasta.gz"):
+                elif filename.endswith(".fa.gz") or filename.endswith(".fasta.gz") or filename.endswith(".fna.gz"):
                     with gzip.open(path.join(subpath, filename), 'rt') as fp:
                         files[name] += load_fasta(fp)
                         print("Loaded", filename, len(files[name]))
